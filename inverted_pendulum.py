@@ -23,10 +23,10 @@ class Pendulum:
 
 def display_stuff(world_size,cart,pendulum):
 	# This function displays the pendulum and cart.
-	length_for_display = pendulum.length * 100
+	length_for_display = pendulum.length
 	A = np.zeros((world_size,world_size,3),np.uint8)
 	cv2.line(A,(0,int(0.6 * world_size)),(world_size,int(0.6 * world_size)),(255,255,255),2)
-	cv2.rectangle(A,(int(cart.x) + 25,cart.y + 15),(int(cart.x) - 25,cart.y - 15),cart.color,-1)	
+	cv2.rectangle(A,(int(cart.x) + 20,int(cart.y + 1.25)),(int(cart.x) - 20,int(cart.y - 1.25)),cart.color,-1)	
 	pendulum_x_endpoint = int(cart.x - (length_for_display) * math.sin(pendulum.theta))
 	pendulum_y_endpoint = int(cart.y - (length_for_display) * math.cos(pendulum.theta))
 	cv2.line(A,(int(cart.x),cart.y),(pendulum_x_endpoint,pendulum_y_endpoint),pendulum.color,4)
@@ -38,63 +38,14 @@ def find_pid_control_input(cart,pendulum,time_delta,error,previous_error,integra
 	# Using PID to find control inputs
 
 	# The gains were emperically tuned
-	Kp = -150
-	Kd = -20
-	Ki = -20
+	Kp = -1500
+	Kd = -20000
+	Ki = -2000000
 
 	derivative = (error - previous_error) / time_delta
 	integral += error * time_delta
 	F = (Kp * error) + (Kd * derivative) + (Ki * integral)
 	return F,integral
-
-def find_lqr_control_input(cart,pendulum,time_delta,error,previous_error,theta_dot,x_dot,g):
-	# Using LQR to find control inputs
-	
-	# The A and B matrices are derived in the report
-	A = np.matrix(  [
-					[0,1,0,0],
-					[0,0,g*pendulum.ball_mass/cart.mass,0],
-					[0,0,0,1],
-					[0,0,(cart.mass+pendulum.ball_mass)*g/(pendulum.length*cart.mass),0]
-					])
-	
-	B = np.matrix(	[
-					[0],
-					[1/cart.mass],
-					[0],
-					[1/(pendulum.length*cart.mass)]
-					])
-
-	# The Q and R matrices are emperically tuned. It is described further in the report
-	Q = np.matrix(	[
-					[10,0,0,0],
-					[0,1,0,0],
-					[0,0,10000,0],
-					[0,0,0,100]
-					])
-
-	R = np.matrix([500])
-
-	# The K matrix is calculated using the lqr function from the controls library 
-	K, S, E = lqr(A, B, Q, R)
-	np.matrix(K)
-
-	x = np.matrix(	[
-					[np.squeeze(np.asarray(cart.x))],
-					[np.squeeze(np.asarray(x_dot))],
-					[np.squeeze(np.asarray(pendulum.theta))],
-					[np.squeeze(np.asarray(theta_dot))]
-					])
-
-	desired = np.matrix(	[
-					[300],
-					[0],
-					[0],
-					[0]
-					])
-
-	F = -(K*(x-desired))
-	return np.squeeze(np.asarray(F))
 	
 def apply_control_input(cart,pendulum,F,time_delta,x_tminus2,theta_dot,theta_tminus2,previous_time_delta,g):
 	# Finding x and theta on considering the control inputs and the dynamics of the system
@@ -111,44 +62,59 @@ def find_error(pendulum):
 		previous_error = previous_error - (2 * math.pi)
 	return previous_error
 
-def plot_graphs(times,errors,theta,force,x):
+def plot_graphs(times,errors,theta,force,pos,vel,acc):
 	# This function plots all the graphs
-	plt.subplot(4, 1, 1)
+	plt.subplot(6, 1, 1)
 	plt.plot(times,errors,'-b')
 	plt.ylabel('Error')
 	plt.xlabel('Time')
 
-	plt.subplot(4, 1, 2)
+	plt.subplot(6, 1, 2)
 	plt.plot(times,theta,'-b')
 	plt.ylabel('Theta')
 	plt.xlabel('Time')
 
-	plt.subplot(4, 1, 3)
+	plt.subplot(6, 1, 3)
 	plt.plot(times,force,'-b')
 	plt.ylabel('Force')
 	plt.xlabel('Time')
 
-	plt.subplot(4, 1, 4)
-	plt.plot(times,x,'-b')
-	plt.ylabel('X')
+	plt.subplot(6, 1, 4)
+	plt.plot(times,pos,'-b')
+	plt.ylabel('Pos')
+	plt.xlabel('Time')
+
+	plt.subplot(6, 1, 5)
+	plt.plot(times,vel,'-b')
+	plt.ylabel('Vel')
+	plt.xlabel('Time')
+
+	plt.subplot(6, 1, 6)
+	plt.plot(times,acc,'-b')
+	plt.ylabel('Acc')
 	plt.xlabel('Time')
 
 	plt.show()
 
-def main(control_technique):
+def main():
 	# Initializing mass values, g, world size, simulation time and variables required to terminate the simulation
-	mass_of_ball = 1.0
-	mass_of_cart = 5.0
+	mass_of_ball = 70.0
+	mass_of_cart = 20.0
+	length_of_pendulum = 100
+	start_theta = 1
 	g = 9.81
-	errors, force, theta, times, x = [],[],[],[],[]
+	errors, force, theta, times, pos, vel, acc = [],[],[],[],[],[],[]
 	world_size = 1000
-	simulation_time = 35
+	simulation_time = 15
+	v = 0
+	a = 0
+	v_tminus1 = 0
 	previous_timestamp = time.time()
 	end_time = previous_timestamp + simulation_time
 
 	# Initializing cart and pendulum objects
-	cart = Cart(int(0.2 * world_size),mass_of_cart,world_size)
-	pendulum = Pendulum(1,1,mass_of_ball)
+	cart = Cart(int(0.5 * world_size),mass_of_cart,world_size)
+	pendulum = Pendulum(length_of_pendulum,start_theta,mass_of_ball)
 
 	# Initializing other variables needed for the simulation
 	theta_dot = 0
@@ -166,15 +132,14 @@ def main(control_technique):
 		if previous_time_delta != 0:	# This condition is to make sure that theta_dot is not infinity in the first step
 			theta_dot = (theta_tminus1 - theta_tminus2 ) / previous_time_delta				
 			x_dot = (x_tminus1 - x_tminus2) / previous_time_delta
-			if control_technique == "lqr":
-				F = find_lqr_control_input(cart,pendulum,time_delta,error,previous_error,theta_dot,x_dot,g)
-			elif control_technique == "pid":
-				F,intergral = find_pid_control_input(cart,pendulum,time_delta,error,previous_error,integral,g)
+			F,intergral = find_pid_control_input(cart,pendulum,time_delta,error,previous_error,integral,g)
 			apply_control_input(cart,pendulum,F,time_delta,x_tminus2,theta_dot,theta_tminus2,previous_time_delta,g)
 			
 			# For plotting the graphs
 			force.append(F)
-			x.append(cart.x)
+			pos.append(cart.x)
+			vel.append(v)
+			acc.append(a)
 			errors.append(error)		
 			times.append(current_timestamp)
 			theta.append(pendulum.theta)
@@ -186,15 +151,17 @@ def main(control_technique):
 		previous_error = error
 		theta_tminus2 = theta_tminus1
 		theta_tminus1 = pendulum.theta
+		a = v - v_tminus1
+		v_tminus1 = v
+		v = cart.x - x_tminus1
 		x_tminus2 = x_tminus1
 		x_tminus1 = cart.x
 
-	plot_graphs(times,errors,theta,force,x)
+	plot_graphs(times,errors,theta,force,pos, vel, acc)
 
 if __name__ == "__main__":
 	arguments = sys.argv
-	if len(arguments) < 2:
-		print "Useage: python inverted_pendulum.py <control_technique>"
+	if len(arguments) < 1:
+		print "Useage: python inverted_pendulum.py"
 		sys.exit()
-	control_technique = arguments[1]
-	main(control_technique)
+	main()
